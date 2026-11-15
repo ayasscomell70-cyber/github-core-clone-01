@@ -46,19 +46,12 @@ function readBody(req: IncomingMessage): Promise<Buffer | null> {
   });
 }
 
-function pathOf(req: IncomingMessage): string {
+/** The request's URL, parsed once per request and shared by the router and the handlers. */
+function urlOf(req: IncomingMessage): URL {
   try {
-    return new URL(req.url ?? '/', 'http://entry').pathname;
+    return new URL(req.url ?? '/', 'http://entry');
   } catch {
-    return '/';
-  }
-}
-
-function queryOf(req: IncomingMessage): URLSearchParams {
-  try {
-    return new URL(req.url ?? '/', 'http://entry').searchParams;
-  } catch {
-    return new URLSearchParams();
+    return new URL('http://entry/');
   }
 }
 
@@ -80,6 +73,7 @@ function jsonCtx(
   req: IncomingMessage,
   res: ServerResponse,
   rawBody: Buffer | null,
+  query: URLSearchParams,
 ): Ctx {
   let body: unknown;
   let bodyMalformed = false;
@@ -96,13 +90,15 @@ function jsonCtx(
     user: authedUser(req),
     body,
     bodyMalformed,
-    query: queryOf(req),
+    query,
     origin: originOf(req),
   };
 }
 
 async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const path = pathOf(req);
+  const url = urlOf(req);
+  const path = url.pathname;
+  const query = url.searchParams;
   const method = req.method ?? 'GET';
   const segments = path.split('/').filter((segment) => segment !== '');
 
@@ -125,7 +121,7 @@ async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void
       sendError(res, 404, 'Not Found');
       return;
     }
-    const ctx = jsonCtx(req, res, rawBody);
+    const ctx = jsonCtx(req, res, rawBody, query);
     if (ctx.user === null) {
       sendError(res, 401, 'Requires authentication');
       return;
@@ -144,7 +140,7 @@ async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void
       sendError(res, 404, 'Not Found');
       return;
     }
-    const ctx = jsonCtx(req, res, rawBody);
+    const ctx = jsonCtx(req, res, rawBody, query);
     if (ctx.user === null) {
       sendJson(res, 401, { jsonrpc: '2.0', id: null, error: { code: -32000, message: 'Unauthorized' } });
       return;
@@ -169,7 +165,6 @@ async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void
     const repoName = decodeSegment(segments[1]!.slice(0, -4));
     const service = segments[2] ?? '';
     if (service === 'info' && segments[3] === 'refs' && method === 'GET') {
-      const query = queryOf(req);
       const serviceName = query.get('service') ?? '';
       handleInfoRefs(req, res, owner, repoName, serviceName, query);
       return;
@@ -188,7 +183,7 @@ async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void
 
   // REST v3: /api/v3/... (segments[0] is 'api', segments[1] is 'v3').
   if (segments.length >= 1 && segments[0] === 'api' && (segments[1] === 'v3' || segments.length === 1)) {
-    const ctx = jsonCtx(req, res, rawBody);
+    const ctx = jsonCtx(req, res, rawBody, query);
     handleRest(ctx, segments.slice(2));
     return;
   }

@@ -204,23 +204,15 @@ function readOfsDeltaBase(buffer: Buffer, offset: number): { baseOffset: number;
 }
 
 function inflateAt(buffer: Buffer, offset: number): { data: Buffer; next: number } {
-  // inflateSync needs the exact slice; find the end by growing the window.
-  // zlib's inflateSync on a truncated stream throws, so binary-search the end.
-  let low = offset;
-  let high = buffer.length;
-  let found = -1;
-  while (low <= high) {
-    const mid = Math.floor((low + high) / 2);
-    try {
-      inflateSync(buffer.subarray(offset, mid));
-      found = mid;
-      high = mid - 1;
-    } catch {
-      low = mid + 1;
-    }
-  }
-  if (found < 0) throw new Error('pack entry does not inflate');
-  return { data: inflateSync(buffer.subarray(offset, found)), next: found };
+  // One call does it: inflateSync stops at the end of the deflate stream and
+  // ignores whatever follows, and with the info flag the engine says exactly
+  // how many input bytes the stream took, which is where the next entry
+  // begins. The old code hunted for that end by inflating shorter and shorter
+  // slices, throwing on every short guess.
+  const result = inflateSync(buffer.subarray(offset), { info: true });
+  const taken = (result.engine as unknown as { bytesWritten?: unknown }).bytesWritten;
+  if (typeof taken !== 'number' || taken <= 0) throw new Error('pack entry does not inflate');
+  return { data: result.buffer, next: offset + taken };
 }
 
 /** Apply a git delta (source-size varint, target-size varint, copy/insert ops). */
