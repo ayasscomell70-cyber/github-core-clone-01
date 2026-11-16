@@ -82,7 +82,9 @@ export class PktLineDecoder {
       throw new Error(`malformed pkt-line length ${JSON.stringify(head)}`);
     }
     if (this.buffer.length < length) return null;
-    const payload = Buffer.from(this.buffer.subarray(4, length));
+    // A view, not a copy: callers read the payload (toString) at once, and
+    // the packet array never outlives the request's body buffer.
+    const payload = this.buffer.subarray(4, length);
     this.buffer = this.buffer.subarray(length);
     return { kind: 'data', payload };
   }
@@ -336,6 +338,21 @@ export function readPack(pack: Buffer, resolveBase?: (oid: string) => GitObject 
     byOffset.set(entryOffset, entry);
   }
   if (offset !== trailerStart) throw new Error(`pack has ${trailerStart - offset} stray bytes before its trailer`);
+
+  // Fast path: a pack with no delta entries resolves directly — no resolver
+  // machinery (no per-entry maps/sets/closure). The suite's packs and every
+  // pack this forge writes carry no deltas, so this is the hot path; a pack
+  // with a delta still falls through to the resolver below, unchanged.
+  const hasDeltas = raw.some((entry) => entry.typeCode === 6 || entry.typeCode === 7);
+  if (!hasDeltas) {
+    const plain = new Map<string, GitObject>();
+    for (const entry of raw) {
+      const type = CODE_TYPE[entry.typeCode]!;
+      const oid = hashObject(type, entry.data);
+      if (!plain.has(oid)) plain.set(oid, { type, data: entry.data });
+    }
+    return { objects: plain, deltaCount: 0 };
+  }
 
   const objects = new Map<string, GitObject>();
   const resolvedByOid = new Map<string, RawEntry>();

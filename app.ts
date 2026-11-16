@@ -40,7 +40,10 @@ function readBody(req: IncomingMessage): Promise<Buffer | null> {
       chunks.push(chunk);
     });
     req.on('end', () => {
-      if (!over) resolve(Buffer.concat(chunks));
+      if (over) return;
+      // One chunk is the common case (small bodies, one TCP segment): return
+      // it directly instead of copying it through Buffer.concat.
+      resolve(chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks));
     });
     req.on('error', () => resolve(over ? null : Buffer.concat(chunks)));
   });

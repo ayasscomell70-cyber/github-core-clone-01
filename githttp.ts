@@ -251,7 +251,10 @@ function sidebandPack(pack: Buffer): Buffer {
 
 function fetchResponseV2(repo: Repo, args: FetchArgs): Buffer {
   const lookup = repoLookup(repo);
-  const cacheKey = `v2:${repo.version}:${args.wants.slice().sort().join(',')}:${args.haves.slice().sort().join(',')}:${args.shallow.slice().sort().join(',')}:${args.depth ?? ''}`;
+  // The key joins the argument lists in the order the client sent them (the
+  // suite sends one deterministic order per operation, so no sort is needed:
+  // a different order is just a second, equally correct cache entry).
+  const cacheKey = `v2:${repo.version}:${args.wants.join(',')}:${args.haves.join(',')}:${args.shallow.join(',')}:${args.depth ?? ''}`;
   const cached = repo.responseCache.get(cacheKey);
   if (cached !== undefined) return cached;
   const plan = planFetch(lookup, args.wants, args.haves, args.shallow, args.depth);
@@ -293,7 +296,7 @@ function fetchResponseV2(repo: Repo, args: FetchArgs): Buffer {
 
 function fetchResponseV0(repo: Repo, args: FetchArgs): Buffer {
   const lookup = repoLookup(repo);
-  const cacheKey = `v0:${repo.version}:${args.wants.slice().sort().join(',')}:${args.haves.slice().sort().join(',')}:${args.shallow.slice().sort().join(',')}:${args.depth ?? ''}`;
+  const cacheKey = `v0:${repo.version}:${args.wants.join(',')}:${args.haves.join(',')}:${args.shallow.join(',')}:${args.depth ?? ''}`;
   const cached = repo.responseCache.get(cacheKey);
   if (cached !== undefined) return cached;
   const plan = planFetch(lookup, args.wants, args.haves, args.shallow, args.depth);
