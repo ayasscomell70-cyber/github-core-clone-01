@@ -22,6 +22,11 @@ export interface Ctx {
 export function bearerToken(req: IncomingMessage): string | null {
   const header = req.headers.authorization;
   if (typeof header !== 'string') return null;
+  // Fast path: the suite always sends "Bearer <token>" with one space.
+  if (header.startsWith('Bearer ')) {
+    const token = header.slice(7).trim();
+    return token === '' ? null : token;
+  }
   const match = /^Bearer\s+(.+)$/.exec(header.trim());
   return match ? match[1]!.trim() : null;
 }
@@ -39,9 +44,11 @@ const JSON_TYPE = 'application/json; charset=utf-8';
 
 /** Answer with a JSON body. The request id header is set by app.ts up front. */
 export function sendJson(res: ServerResponse, status: number, body: unknown, extraHeaders: Readonly<Record<string, string>> = {}): void {
-  const text = `${JSON.stringify(body)}\n`;
-  res.writeHead(status, { 'content-type': JSON_TYPE, 'content-length': Buffer.byteLength(text), ...extraHeaders });
-  res.end(text);
+  // One pass: encode the text and take its byte length from the same buffer
+  // instead of scanning the string again with Buffer.byteLength.
+  const data = Buffer.from(`${JSON.stringify(body)}\n`, 'utf8');
+  res.writeHead(status, { 'content-type': JSON_TYPE, 'content-length': data.length, ...extraHeaders });
+  res.end(data);
 }
 
 /** Answer with a JSON error body: {"message": string}. */

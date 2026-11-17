@@ -23,6 +23,9 @@ import { nextRequestId } from './store.ts';
 /** Bodies larger than this are refused with 413 (packs stay far below it). */
 const MAX_BODY_BYTES = 64 * 1024 * 1024;
 
+/** The shared empty body for requests that carry none (GETs and friends). */
+const EMPTY_BODY: Buffer = Buffer.alloc(0);
+
 /** Read a request body whole, or null when it is over the cap. */
 function readBody(req: IncomingMessage): Promise<Buffer | null> {
   return new Promise((resolve) => {
@@ -112,7 +115,7 @@ async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void
   }
 
   const needsBody = method === 'POST' || method === 'PUT' || method === 'PATCH' || method === 'DELETE';
-  const rawBody = needsBody ? await readBody(req) : Buffer.alloc(0);
+  const rawBody = needsBody ? await readBody(req) : EMPTY_BODY;
   if (rawBody === null) {
     sendError(res, 413, 'Request body too large');
     return;
@@ -196,7 +199,7 @@ async function dispatch(req: IncomingMessage, res: ServerResponse): Promise<void
 
 /** Build the server. It binds nothing until the caller listens. */
 export function createApp(): Server {
-  return createServer((req: IncomingMessage, res: ServerResponse) => {
+  const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     // Every reply carries a non-empty X-GitHub-Request-Id.
     res.setHeader('x-github-request-id', nextRequestId());
     dispatch(req, res).catch((err: unknown) => {
@@ -209,4 +212,11 @@ export function createApp(): Server {
       }
     });
   });
+  // Small responses on a keep-alive loopback socket: never let Nagle hold one
+  // back waiting for an ACK of the request (Node already sets this on server
+  // sockets; stating it keeps the behaviour explicit if that ever changes).
+  server.on('connection', (socket) => {
+    socket.setNoDelay(true);
+  });
+  return server;
 }

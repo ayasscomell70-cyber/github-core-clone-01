@@ -520,7 +520,7 @@ export function handleReceivePack(
 // -------------------------------------------------------------------------------------------
 
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const text = `${JSON.stringify(body)}\n`;
-  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(text) });
-  res.end(text);
+  const data = Buffer.from(`${JSON.stringify(body)}\n`, 'utf8');
+  res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': data.length });
+  res.end(data);
 }
